@@ -1,0 +1,147 @@
+name: ${COMPOSE_PROJECT_NAME:?Configura .env}
+
+x-common: &common
+  restart: unless-stopped
+  user: "${PUID:?}:${PGID:?}"
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: 60s
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+x-lsio: &lsio
+  <<: *common
+  environment:
+    TZ: ${TZ:?}
+    UMASK: "002"
+  # s6 necesita /run escribible y propiedad del usuario, también con NNP.
+  tmpfs:
+    - "/run:uid=${PUID:?},gid=${PGID:?},mode=0755,exec,size=64m"
+    - "/tmp:uid=${PUID:?},gid=${PGID:?},mode=1777,size=128m"
+
+services:
+  jellyfin:
+    <<: *common
+    image: ${JELLYFIN_IMAGE:?Ejecuta ./stack lock}
+    init: true
+    environment:
+      TZ: ${TZ:?}
+    ports: ["127.0.0.1:8096:8096"]
+    volumes:
+      - type: bind
+        source: ${APPDATA_ROOT:?}/jellyfin
+        target: /config
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${APPDATA_ROOT:?}/jellyfin-cache
+        target: /cache
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${DATA_ROOT:?}/media
+        target: /media
+        read_only: true
+        bind: {create_host_path: false}
+    networks: [playback]
+    mem_limit: 4g
+    healthcheck:
+      test: [CMD, curl, -fsS, http://localhost:8096/health]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+
+  seerr:
+    <<: *common
+    image: ${SEERR_IMAGE:?Ejecuta ./stack lock}
+    init: true
+    environment:
+      TZ: ${TZ:?}
+      LOG_LEVEL: info
+      PORT: "5055"
+    ports: ["127.0.0.1:5055:5055"]
+    volumes:
+      - type: bind
+        source: ${APPDATA_ROOT:?}/seerr
+        target: /app/config
+        bind: {create_host_path: false}
+    networks: [playback, automation]
+    mem_limit: 1g
+    healthcheck:
+      test: [CMD, wget, --no-verbose, --tries=1, --spider, http://localhost:5055/api/v1/settings/public]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+
+  radarr:
+    <<: *lsio
+    image: ${RADARR_IMAGE:?Ejecuta ./stack lock}
+    ports: ["127.0.0.1:7878:7878"]
+    volumes:
+      - type: bind
+        source: ${APPDATA_ROOT:?}/radarr
+        target: /config
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${DATA_ROOT:?}
+        target: /data
+        bind: {create_host_path: false}
+    networks: [automation]
+    mem_limit: 1g
+
+  sonarr:
+    <<: *lsio
+    image: ${SONARR_IMAGE:?Ejecuta ./stack lock}
+    ports: ["127.0.0.1:8989:8989"]
+    volumes:
+      - type: bind
+        source: ${APPDATA_ROOT:?}/sonarr
+        target: /config
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${DATA_ROOT:?}
+        target: /data
+        bind: {create_host_path: false}
+    networks: [automation]
+    mem_limit: 1g
+
+  prowlarr:
+    <<: *lsio
+    image: ${PROWLARR_IMAGE:?Ejecuta ./stack lock}
+    ports: ["127.0.0.1:9696:9696"]
+    volumes:
+      - type: bind
+        source: ${APPDATA_ROOT:?}/prowlarr
+        target: /config
+        bind: {create_host_path: false}
+    networks: [automation]
+    mem_limit: 512m
+
+  qbittorrent:
+    <<: *lsio
+    image: ${QBITTORRENT_IMAGE:?Ejecuta ./stack lock}
+    environment:
+      TZ: ${TZ:?}
+      UMASK: "002"
+      WEBUI_PORT: "8080"
+      TORRENTING_PORT: "6881"
+    ports: ["127.0.0.1:8080:8080"]
+    # Sin puertos P2P publicados: opera como nodo pasivo mediante salida directa.
+    volumes:
+      - type: bind
+        source: ${APPDATA_ROOT:?}/qbittorrent
+        target: /config
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${DATA_ROOT:?}/torrents
+        target: /data/torrents
+        bind: {create_host_path: false}
+    networks: [automation]
+    mem_limit: 1g
+
+networks:
+  playback: {}
+  automation: {}

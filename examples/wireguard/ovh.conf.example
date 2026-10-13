@@ -1,0 +1,9 @@
+# /etc/wireguard/wg-media.conf en OVH. Permisos 0600.
+[Interface]
+Address = 10.77.0.1/32
+ListenPort = 51820
+PrivateKey = <CLAVE_PRIVADA_OVH>
+
+[Peer]
+PublicKey = <CLAVE_PUBLICA_CASA>
+AllowedIPs = 10.77.0.2/32

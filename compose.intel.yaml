@@ -1,0 +1,6 @@
+# OPCIONAL: dispositivo Intel/AMD verificado en casa; no usar para NVIDIA.
+# Primero revisa renderD128 y el GID real de su grupo (stat -c %g ...).
+services:
+  jellyfin:
+    devices: ["/dev/dri/renderD128:/dev/dri/renderD128"]
+    group_add: ["${RENDER_GID:?Configura RENDER_GID en .env}"]

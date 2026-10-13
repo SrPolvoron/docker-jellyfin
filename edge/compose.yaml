@@ -1,0 +1,41 @@
+# Solo si OVH todavía NO tiene un proxy en 80/443. Sin Docker socket.
+name: ${COMPOSE_PROJECT_NAME:?}-edge
+services:
+  traefik:
+    image: ${TRAEFIK_IMAGE:?Ejecuta ./stack lock --target edge}
+    restart: unless-stopped
+    user: "65532:65532"
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    command:
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - --api.dashboard=false
+      - --log.level=INFO
+      - --ping=true
+    ports: ["80:80", "443:443"]
+    volumes:
+      - type: bind
+        source: ${PROJECT_ROOT:?}/edge/dynamic
+        target: /etc/traefik/dynamic
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${PROJECT_ROOT:?}/edge/acme
+        target: /letsencrypt
+        bind: {create_host_path: false}
+    healthcheck:
+      test: [CMD, traefik, healthcheck, --ping]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}

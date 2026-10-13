@@ -1,0 +1,13 @@
+.env
+images.lock.env
+images.lock.env.previous
+edge/dynamic/
+edge/acme/
+*.conf
+*.key
+*.pem
+*.tar.gz
+*.zip
+__pycache__/
+*.pyc
+.venv/

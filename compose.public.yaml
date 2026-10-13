@@ -1,0 +1,7 @@
+# Añade acceso SOLO a Jellyfin y Seerr por la dirección WireGuard de casa.
+# Conserva los puertos de localhost para administración por SSH.
+services:
+  jellyfin:
+    ports: ["${HOME_WG_IP:?Configura la IP WireGuard de casa}:8096:8096"]
+  seerr:
+    ports: ["${HOME_WG_IP:?Configura la IP WireGuard de casa}:5055:5055"]

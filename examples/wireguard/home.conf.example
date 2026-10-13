@@ -1,0 +1,11 @@
+# /etc/wireguard/wg-media.conf en CASA. Permisos 0600.
+# Ejemplo: cambia las IP si esta red coincide con LAN, Docker o Kubernetes.
+[Interface]
+Address = 10.77.0.2/32
+PrivateKey = <CLAVE_PRIVADA_CASA>
+
+[Peer]
+PublicKey = <CLAVE_PUBLICA_OVH>
+Endpoint = <IP_PUBLICA_OVH>:51820
+AllowedIPs = 10.77.0.1/32
+PersistentKeepalive = 25
