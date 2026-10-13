@@ -92,6 +92,41 @@ y prueba cada conexión. En Settings → Apps crea:
 Pulsa **Test** y comprueba que aparecen los indexadores en Radarr/Sonarr. Si usas
 solo torrents, no configures indexadores Usenet sin un cliente compatible.
 
+## Bazarr
+
+Accede a `http://localhost:6767` por el túnel SSH y configura autenticación. Bazarr
+comparte exactamente `/data/media` con Radarr y Sonarr; **no añadas Path Mappings**.
+
+En Settings → Sonarr:
+
+| Campo | Valor |
+|---|---|
+| Enabled | Activado |
+| Address | `sonarr` |
+| Port | `8989` |
+| Base URL | Vacío |
+| API Key | La de Sonarr |
+| SSL | Desactivado |
+
+En Settings → Radarr:
+
+| Campo | Valor |
+|---|---|
+| Enabled | Activado |
+| Address | `radarr` |
+| Port | `7878` |
+| Base URL | Vacío |
+| API Key | La de Radarr |
+| SSL | Desactivado |
+
+Pulsa **Test** y guarda cada integración. En Settings → Languages habilita Spanish
+y crea un perfil, por ejemplo **Castellano**, con español como idioma requerido.
+En Settings → Providers añade proveedores de subtítulos compatibles con tus cuentas
+y prueba cada uno. En Settings → Subtitles conserva los subtítulos junto al archivo
+multimedia. Aplica el perfil como predeterminado para nuevas películas y series; para
+contenido ya existente usa Mass Edit en Movies y Series. Bazarr escribe los `.srt`
+junto a los vídeos para que Jellyfin los detecte durante su actualización de biblioteca.
+
 ## Seerr
 
 1. Selecciona **Jellyfin** y entra con la cuenta administradora dedicada. Ese usuario
@@ -119,6 +154,6 @@ solo torrents, no configures indexadores Usenet sin un cliente compatible.
 
 Flujo de uso: usuario solicita → aprobación → Radarr/Sonarr consultan fuentes
 sincronizadas por Prowlarr → qBittorrent descarga → importación → Jellyfin detecta
-el archivo → Seerr sincroniza disponibilidad. Son servicios separados, con dos
+el archivo → Bazarr busca subtítulos → Seerr sincroniza disponibilidad. Son servicios separados, con dos
 interfaces públicas y sesiones independientes. El contenido solicitado va a las
 bibliotecas configuradas, compartidas por defecto.

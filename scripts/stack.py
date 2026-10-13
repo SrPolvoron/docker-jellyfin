@@ -15,13 +15,14 @@ import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[1]
-HOME_SERVICES = ("jellyfin", "seerr", "radarr", "sonarr", "prowlarr", "qbittorrent")
+HOME_SERVICES = ("jellyfin", "seerr", "radarr", "sonarr", "prowlarr", "bazarr", "qbittorrent")
 REPOSITORIES = {
     "JELLYFIN": "jellyfin/jellyfin",
     "SEERR": "ghcr.io/seerr-team/seerr",
     "RADARR": "lscr.io/linuxserver/radarr",
     "SONARR": "lscr.io/linuxserver/sonarr",
     "PROWLARR": "lscr.io/linuxserver/prowlarr",
+    "BAZARR": "lscr.io/linuxserver/bazarr",
     "QBITTORRENT": "lscr.io/linuxserver/qbittorrent",
     "TRAEFIK": "traefik",
 }

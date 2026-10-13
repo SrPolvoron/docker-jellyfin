@@ -120,6 +120,23 @@ services:
     networks: [automation]
     mem_limit: 512m
 
+  bazarr:
+    <<: *lsio
+    image: ${BAZARR_IMAGE:?Ejecuta ./stack lock}
+    ports: ["127.0.0.1:6767:6767"]
+    volumes:
+      - type: bind
+        source: ${APPDATA_ROOT:?}/bazarr
+        target: /config
+        bind: {create_host_path: false}
+      # Conserva las mismas rutas que Radarr/Sonarr sin exponer las descargas.
+      - type: bind
+        source: ${DATA_ROOT:?}/media
+        target: /data/media
+        bind: {create_host_path: false}
+    networks: [automation]
+    mem_limit: 512m
+
   qbittorrent:
     <<: *lsio
     image: ${QBITTORRENT_IMAGE:?Ejecuta ./stack lock}

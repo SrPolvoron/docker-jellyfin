@@ -9,11 +9,13 @@ Kubernetes learning is independent and out of scope. Keep Debian unchanged.
 - Do not implement a custom media player, authentication system or content scraper.
 - Base Compose publishes every application exclusively on IPv4 loopback.
 - Public overlay adds only Jellyfin and Seerr on the explicit private tunnel IP.
-- Never expose arr/qBittorrent administration through OVH or a wildcard bind.
+- Never expose arr/Bazarr/qBittorrent administration through OVH or a wildcard bind.
 - Bootstrap must finish behind SSH before the public overlay is enabled.
 - Media is read-only in Jellyfin; qBittorrent only mounts its downloads subtree.
 - Radarr/Sonarr see downloads and library under one `/data` bind, on one filesystem
   for hardlinks. Requests do not automatically create private user libraries.
+- Bazarr sees only `/data/media`, using the same paths as Radarr/Sonarr so it can
+  write subtitle files beside imported media without access to torrent downloads.
 - All application processes run non-root; LSIO requires owned, executable /run tmpfs.
 - No privileged containers, host networking or Docker socket mounts.
 - Compose starts only images pinned to digests. Stable tags are resolver inputs only.

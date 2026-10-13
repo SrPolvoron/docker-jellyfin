@@ -7,11 +7,14 @@ No se ha desplegado en los servidores de casa/OVH ni publicado en GitHub.
 
 | Comprobación | Resultado |
 |---|---|
-| `python3 -m unittest discover -s tests -v` | 26 pruebas correctas |
+| `python3 -m unittest discover -s tests -v` | 27 pruebas correctas |
 | `python3 tests/check_compose.py` | Correcto: YAML y contratos de despliegue |
 | Parseado AST compatible con Python 3.10 | Correcto |
 | `python3 -m compileall -q scripts tests` | Correcto |
 | `sh -n stack` | Correcto |
+
+Tras añadir Bazarr deben repetirse estas comprobaciones; la validación de su imagen
+real y de los proveedores de subtítulos se realiza en el servidor Debian.
 
 Las pruebas cubren rechazo de interpolaciones de shell, dominios que podrían
 inyectar reglas, UID root, binds wildcard, rutas críticas/solapadas/simbólicas,
@@ -53,7 +56,8 @@ un instalador que modifique el host automáticamente.
 3. Configura cuentas y conexiones siguiendo CONFIGURACION.md. Prueba credenciales
    incorrectas y cuentas con diferentes bibliotecas; deben negar acceso correctamente.
 4. Con un archivo de prueba o una descarga de una fuente que hayas configurado,
-   verifica importación, detección en Jellyfin y reproducción. Si usas hardlinks,
+   verifica importación, descarga de subtítulos con Bazarr, detección en Jellyfin y
+   reproducción. Si usas hardlinks,
    compara inode/número de enlaces del archivo descargado y el importado en el host.
 5. Haz un backup, inspecciónalo en un directorio temporal privado y confirma que
    las aplicaciones previamente activas vuelven a estar disponibles. Programa
@@ -79,6 +83,8 @@ paso es desplegar en privado y validar las imágenes reales, después habilitar 
 - [LSIO Radarr](https://docs.linuxserver.io/images/docker-radarr/)
 - [LSIO Sonarr](https://docs.linuxserver.io/images/docker-sonarr/)
 - [LSIO Prowlarr](https://docs.linuxserver.io/images/docker-prowlarr/)
+- [LSIO Bazarr](https://docs.linuxserver.io/images/docker-bazarr/)
+- [Configuración oficial de Bazarr](https://wiki.bazarr.media/Getting-Started/Setup-Guide/)
 - [LSIO qBittorrent](https://docs.linuxserver.io/images/docker-qbittorrent/)
 - [LSIO con usuario no root](https://docs.linuxserver.io/misc/non-root/)
 - [WireGuard](https://www.wireguard.com/quickstart/)

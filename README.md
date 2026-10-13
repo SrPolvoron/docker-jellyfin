@@ -1,8 +1,8 @@
 # Jellyfin Home Stack · SrPolvoron
 
 Tu biblioteca de películas y series en **Debian con Docker Compose**: reproducción
-con Jellyfin, descubrimiento/solicitudes con Seerr y descargas con Radarr, Sonarr,
-Prowlarr y qBittorrent. Acceso con cuentas propias por HTTPS desde un Traefik en
+con Jellyfin, descubrimiento/solicitudes con Seerr, subtítulos con Bazarr y descargas
+con Radarr, Sonarr, Prowlarr y qBittorrent. Acceso con cuentas propias por HTTPS desde un Traefik en
 OVH, conectado a casa mediante WireGuard. Kubernetes queda para tus otros proyectos.
 
 ## Arquitectura fijada
@@ -10,7 +10,7 @@ OVH, conectado a casa mediante WireGuard. Kubernetes queda para tus otros proyec
 | Ubicación | Servicios | Acceso |
 |---|---|---|
 | Debian de casa | Jellyfin, Seerr | Primero localhost; después también IP WireGuard |
-| Debian de casa | Radarr, Sonarr, Prowlarr, qBittorrent | Localhost y túnel SSH |
+| Debian de casa | Radarr, Sonarr, Prowlarr, Bazarr, qBittorrent | Localhost y túnel SSH |
 | OVH | Traefik existente o Compose opcional incluido | 80/443 públicos |
 | Ambos hosts | WireGuard del sistema | Un túnel privado con rutas /32 |
 
@@ -73,7 +73,8 @@ Desde tu ordenador abre un túnel SSH al servidor de casa (usa tu alias SSH):
 ssh -N -o ExitOnForwardFailure=yes \
   -L 8096:127.0.0.1:8096 -L 5055:127.0.0.1:5055 \
   -L 7878:127.0.0.1:7878 -L 8989:127.0.0.1:8989 \
-  -L 9696:127.0.0.1:9696 -L 8080:127.0.0.1:8080 casa
+  -L 9696:127.0.0.1:9696 -L 6767:127.0.0.1:6767 \
+  -L 8080:127.0.0.1:8080 casa
 ```
 
 | Aplicación | Dirección en tu ordenador |
@@ -83,12 +84,13 @@ ssh -N -o ExitOnForwardFailure=yes \
 | Radarr | http://localhost:7878 |
 | Sonarr | http://localhost:8989 |
 | Prowlarr | http://localhost:9696 |
+| Bazarr | http://localhost:6767 |
 | qBittorrent | http://localhost:8080 |
 
 ## 2. Cuentas, bibliotecas y descargas
 
 Sigue [docs/CONFIGURACION.md](docs/CONFIGURACION.md): incluye los campos exactos
-para conectar las seis aplicaciones. Primero termina los asistentes, configura
+para conectar las siete aplicaciones. Primero termina los asistentes, configura
 contraseñas y prueba las conexiones. Las API keys se copian entre las interfaces;
 no se añaden a Git ni a este proyecto.
 
@@ -168,6 +170,27 @@ directorio temporal privado, comprueba su contenido, detén el stack y restaura 
 carpetas de `appdata/`, `.env` y el lock en sus rutas originales; conserva UID/GID.
 No extraigas archivos no fiables directamente sobre el sistema. No hay actualizaciones
 automáticas ni un comando que borre contenido.
+
+### Incorporar Bazarr a una instalación existente
+
+Después de actualizar el repositorio, añade a tu `.env` si aún no existe:
+
+```text
+BAZARR_SOURCE_IMAGE=lscr.io/linuxserver/bazarr:latest
+```
+
+Conservando el acceso público actual, crea el directorio, resuelve únicamente la
+imagen nueva y aplica el Compose:
+
+```bash
+sudo ./stack prepare
+./stack lock
+./stack config --public
+./stack up --public --accounts-configured
+./stack status
+```
+
+Bazarr queda en `127.0.0.1:6767`; no se publica mediante Traefik ni WireGuard.
 
 ## GPU opcional y Kubernetes
 

@@ -167,6 +167,25 @@ class StackTests(unittest.TestCase):
             stack.lock_images(stack.load_config(), "home", False)
         run.assert_not_called()
 
+    def test_existing_lock_resolves_only_new_bazarr_image(self):
+        locks = self.locks()
+        locks.pop("BAZARR_IMAGE")
+        lock_file = self.root / "images.lock.env"
+        lock_file.write_text("".join(f"{key}={value}\n" for key, value in locks.items()))
+        calls = []
+
+        def runner(argv, **kwargs):
+            calls.append(argv)
+            if argv[1] == "pull":
+                return ""
+            return '["lscr.io/linuxserver/bazarr@sha256:' + "b" * 64 + '"]'
+
+        with patch.object(stack, "run", side_effect=runner):
+            stack.lock_images(stack.load_config(), "home", False)
+        pulls = [argv for argv in calls if argv[1] == "pull"]
+        self.assertEqual(pulls, [["docker", "pull", "lscr.io/linuxserver/bazarr:latest"]])
+        self.assertIn("BAZARR_IMAGE=lscr.io/linuxserver/bazarr@sha256:", lock_file.read_text())
+
     def test_host_and_edge_project_names_do_not_collide(self):
         self.locks()
         cfg = stack.load_config()
@@ -244,6 +263,7 @@ class StackTests(unittest.TestCase):
         with tarfile.open(output) as archive:
             names = archive.getnames()
             self.assertIn("appdata/qbittorrent/config.json", names)
+            self.assertIn("appdata/bazarr/config.json", names)
             self.assertIn(".env", names)
             self.assertIn("images.lock.env", names)
             self.assertFalse(any("cache" in name or "torrents" in name for name in names))

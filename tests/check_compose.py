@@ -57,11 +57,16 @@ def check():
     for name in ("radarr", "sonarr"):
         assert any(v["target"] == "/data" and v["source"] == cfg["DATA_ROOT"]
                    for v in base["services"][name]["volumes"])
+    bazarr = base["services"]["bazarr"]
+    assert bazarr["ports"] == ["127.0.0.1:6767:6767"]
+    assert any(v["target"] == "/data/media" and v["source"] == cfg["DATA_ROOT"] + "/media"
+               for v in bazarr["volumes"])
+    assert not any(v["target"] == "/data/torrents" for v in bazarr["volumes"])
     qbit = base["services"]["qbittorrent"]
     assert qbit["ports"] == ["127.0.0.1:8080:8080"]
     assert any(v["target"] == "/data/torrents" for v in qbit["volumes"])
     assert not any(v["target"] in ("/data", "/media") for v in qbit["volumes"])
-    for name in ("radarr", "sonarr", "prowlarr", "qbittorrent"):
+    for name in ("radarr", "sonarr", "prowlarr", "bazarr", "qbittorrent"):
         assert any(v.startswith("/run:uid=1000,gid=1000,") and ",exec," in v
                    for v in base["services"][name]["tmpfs"])
 
