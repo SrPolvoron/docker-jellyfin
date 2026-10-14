@@ -1,20 +1,20 @@
 # Validación y estado del proyecto
 
-Fecha: 2026-10-13. Entrega orientada a **desarrollo e instalación supervisada**.
+Fecha: 2026-10-14. Entrega orientada a **desarrollo e instalación supervisada**.
 No se ha desplegado en los servidores de casa/OVH ni publicado en GitHub.
 
 ## Comprobaciones ejecutadas
 
 | Comprobación | Resultado |
 |---|---|
-| `python3 -m unittest discover -s tests -v` | 27 pruebas correctas |
+| `python3 -m unittest discover -s tests -v` | 33 pruebas correctas |
 | `python3 tests/check_compose.py` | Correcto: YAML y contratos de despliegue |
 | Parseado AST compatible con Python 3.10 | Correcto |
 | `python3 -m compileall -q scripts tests` | Correcto |
 | `sh -n stack` | Correcto |
 
-Tras añadir Bazarr deben repetirse estas comprobaciones; la validación de su imagen
-real y de los proveedores de subtítulos se realiza en el servidor Debian.
+Tras separar qBittorrent deben repetirse estas comprobaciones; la validación de las
+imágenes reales y de la red compartida se realiza en el servidor Debian.
 
 Las pruebas cubren rechazo de interpolaciones de shell, dominios que podrían
 inyectar reglas, UID root, binds wildcard, rutas críticas/solapadas/simbólicas,
@@ -24,8 +24,9 @@ protección frente a overrides de entorno, backup sin sobrescritura y reinicio
 tras un fallo parcial de parada. La prueba de backup crea e inspecciona un TAR real;
 las llamadas a Docker en estas pruebas están simuladas.
 
-La comprobación YAML analiza anchors, bind mounts, permisos, capacidades, redes,
-ports, overlays, dispositivos GPU, reglas Traefik generadas y rutas /32 WireGuard.
+La comprobación YAML analiza anchors, bind mounts, permisos, capacidades, la red
+externa exclusiva de Radarr/Sonarr, puertos, overlays, dispositivos GPU, reglas
+Traefik generadas y rutas /32 WireGuard.
 Emplea digests ficticios únicamente dentro del test, que no se distribuyen como lock.
 **No es un validador oficial completo de Compose ni prueba que arranquen las imágenes.**
 
@@ -47,28 +48,30 @@ un instalador que modifique el host automáticamente.
 
 ## Prueba de aceptación en Debian y OVH
 
-1. Revisa `.env`; ejecuta check, prepare, lock y **`./stack config`**. La validación
+1. Despliega primero `docker-qbittorrent` con el mismo `DATA_ROOT`, PUID/PGID y
+   `SHARED_NETWORK`; ejecuta allí `prepare`, `network-create` y `up --media`.
+2. Revisa `.env`; ejecuta check, prepare, lock y **`./stack config`**. La validación
    nativa de Compose debe finalizar sin errores antes de crear contenedores.
-2. Arranca en privado. `./stack status` debe mostrar Jellyfin/Seerr saludables y
+3. Arranca en privado. `./stack status` debe mostrar Jellyfin/Seerr saludables y
    los demás servicios activos sin bucles de reinicio. Revisa permisos y logs.
    Mantén las protecciones; diagnostica cualquier incompatibilidad con la imagen
    resuelta en lugar de añadir privilegios o desactivar autenticación a ciegas.
-3. Configura cuentas y conexiones siguiendo CONFIGURACION.md. Prueba credenciales
+4. Configura cuentas y conexiones siguiendo CONFIGURACION.md. Prueba credenciales
    incorrectas y cuentas con diferentes bibliotecas; deben negar acceso correctamente.
-4. Con un archivo de prueba o una descarga de una fuente que hayas configurado,
+5. Con un archivo de prueba o una descarga de una fuente que hayas configurado,
    verifica importación, descarga de subtítulos con Bazarr, detección en Jellyfin y
    reproducción. Si usas hardlinks,
    compara inode/número de enlaces del archivo descargado y el importado en el host.
-5. Haz un backup, inspecciónalo en un directorio temporal privado y confirma que
+6. Haz un backup, inspecciónalo en un directorio temporal privado y confirma que
    las aplicaciones previamente activas vuelven a estar disponibles. Programa
    una restauración de prueba en un entorno separado antes de depender de la copia.
-6. Configura WireGuard y el filtrado por interfaz/peer, confirma handshake y que
+7. Configura WireGuard y el filtrado por interfaz/peer, confirma handshake y que
    OVH llega a los dos servicios y la LAN no puede alcanzar la IP del túnel.
    Ejecuta `./stack config --public`, publica en casa y configura Traefik.
-7. Prueba HTTPS desde una red externa, login, WebSocket/cliente móvil si procede,
-   adelantar vídeo y solicitudes. Los paneles administrativos no deben responder
-   por la IP WireGuard ni por subdominios públicos.
-8. Recrea el stack manteniendo --public y comprueba que permanecen cuentas,
+8. Prueba HTTPS desde una red externa, login, WebSocket/cliente móvil si procede,
+   adelantar vídeo y solicitudes. Los paneles administrativos deben responder solo
+   por la IP WireGuard o el túnel SSH, nunca por subdominios públicos o la IP pública.
+9. Recrea el stack manteniendo --public y comprueba que permanecen cuentas,
    bibliotecas y configuraciones. Revisa recuperación después de reiniciar casa.
 
 La herramienta no automatiza cuentas, API keys o fuentes de búsqueda. El próximo

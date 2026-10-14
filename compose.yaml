@@ -89,7 +89,8 @@ services:
         source: ${DATA_ROOT:?}
         target: /data
         bind: {create_host_path: false}
-    networks: [automation]
+    # The external network is created and owned by docker-qbittorrent.
+    networks: [automation, downloads]
     mem_limit: 1g
 
   sonarr:
@@ -105,7 +106,8 @@ services:
         source: ${DATA_ROOT:?}
         target: /data
         bind: {create_host_path: false}
-    networks: [automation]
+    # Use qbittorrent-standalone:8081 on the shared network.
+    networks: [automation, downloads]
     mem_limit: 1g
 
   prowlarr:
@@ -137,28 +139,9 @@ services:
     networks: [automation]
     mem_limit: 512m
 
-  qbittorrent:
-    <<: *lsio
-    image: ${QBITTORRENT_IMAGE:?Ejecuta ./stack lock}
-    environment:
-      TZ: ${TZ:?}
-      UMASK: "002"
-      WEBUI_PORT: "8080"
-      TORRENTING_PORT: "6881"
-    ports: ["127.0.0.1:8080:8080"]
-    # Sin puertos P2P publicados: opera como nodo pasivo mediante salida directa.
-    volumes:
-      - type: bind
-        source: ${APPDATA_ROOT:?}/qbittorrent
-        target: /config
-        bind: {create_host_path: false}
-      - type: bind
-        source: ${DATA_ROOT:?}/torrents
-        target: /data/torrents
-        bind: {create_host_path: false}
-    networks: [automation]
-    mem_limit: 1g
-
 networks:
   playback: {}
   automation: {}
+  downloads:
+    external: true
+    name: ${SHARED_NETWORK:?Configura SHARED_NETWORK}

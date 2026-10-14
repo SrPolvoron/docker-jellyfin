@@ -15,7 +15,7 @@ import tempfile
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[1]
-HOME_SERVICES = ("jellyfin", "seerr", "radarr", "sonarr", "prowlarr", "bazarr", "qbittorrent")
+HOME_SERVICES = ("jellyfin", "seerr", "radarr", "sonarr", "prowlarr", "bazarr")
 REPOSITORIES = {
     "JELLYFIN": "jellyfin/jellyfin",
     "SEERR": "ghcr.io/seerr-team/seerr",
@@ -23,16 +23,21 @@ REPOSITORIES = {
     "SONARR": "lscr.io/linuxserver/sonarr",
     "PROWLARR": "lscr.io/linuxserver/prowlarr",
     "BAZARR": "lscr.io/linuxserver/bazarr",
-    "QBITTORRENT": "lscr.io/linuxserver/qbittorrent",
     "TRAEFIK": "traefik",
 }
+LEGACY_REPOSITORIES = {
+    # Accepted only so an existing .env/images.lock.env remains usable during
+    # migration. qBittorrent is no longer started by this repository.
+    "QBITTORRENT": "lscr.io/linuxserver/qbittorrent",
+}
+ALL_REPOSITORIES = REPOSITORIES | LEGACY_REPOSITORIES
 KNOWN_KEYS = {
     "COMPOSE_PROJECT_NAME", "TZ", "PUID", "PGID", "APPDATA_ROOT", "DATA_ROOT",
-    "HOME_WG_IP", "OVH_WG_IP", "WG_INTERFACE", "JELLYFIN_DOMAIN", "SEERR_DOMAIN",
+    "SHARED_NETWORK", "HOME_WG_IP", "OVH_WG_IP", "WG_INTERFACE", "JELLYFIN_DOMAIN", "SEERR_DOMAIN",
     "TRAEFIK_HTTP_ENTRYPOINT", "TRAEFIK_HTTPS_ENTRYPOINT", "TRAEFIK_CERT_RESOLVER",
     "ACME_EMAIL", "RENDER_GID",
-} | {f"{name}_SOURCE_IMAGE" for name in REPOSITORIES}
-LOCK_KEYS = {f"{name}_IMAGE" for name in REPOSITORIES}
+} | {f"{name}_SOURCE_IMAGE" for name in ALL_REPOSITORIES}
+LOCK_KEYS = {f"{name}_IMAGE" for name in ALL_REPOSITORIES}
 
 
 class ConfigError(Exception):
@@ -113,7 +118,7 @@ def image_repo(value: str) -> str:
 
 
 def valid_image(value: str, name: str, *, pinned: bool) -> bool:
-    repo = REPOSITORIES[name]
+    repo = ALL_REPOSITORIES[name]
     aliases = {repo}
     if repo.startswith("lscr.io/"):
         aliases.add(repo.replace("lscr.io/", "ghcr.io/", 1))
@@ -128,7 +133,7 @@ def valid_image(value: str, name: str, *, pinned: bool) -> bool:
 
 def load_config() -> dict[str, str]:
     cfg = read_env(ROOT / ".env", KNOWN_KEYS)
-    required = KNOWN_KEYS - {"RENDER_GID"}
+    required = KNOWN_KEYS - {"RENDER_GID", "QBITTORRENT_SOURCE_IMAGE"}
     if missing := required - cfg.keys():
         raise ConfigError("Faltan variables: " + ", ".join(sorted(missing)))
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,47}", cfg["COMPOSE_PROJECT_NAME"]):
@@ -143,6 +148,8 @@ def load_config() -> dict[str, str]:
     app, data = (storage_path(cfg[k]) for k in ("APPDATA_ROOT", "DATA_ROOT"))
     if related(app, data) or related(app, ROOT) or related(data, ROOT):
         raise ConfigError("Appdata, contenido y repositorio deben estar separados")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", cfg["SHARED_NETWORK"]):
+        raise ConfigError("SHARED_NETWORK no es un nombre de red Docker válido")
     for key in ("HOME_WG_IP", "OVH_WG_IP"):
         private_ipv4(cfg[key])
     if cfg["HOME_WG_IP"] == cfg["OVH_WG_IP"]:
@@ -163,6 +170,9 @@ def load_config() -> dict[str, str]:
     for name in REPOSITORIES:
         if not valid_image(cfg[f"{name}_SOURCE_IMAGE"], name, pinned=False):
             raise ConfigError(f"{name}_SOURCE_IMAGE debe usar el repositorio documentado")
+    if "QBITTORRENT_SOURCE_IMAGE" in cfg and not valid_image(
+            cfg["QBITTORRENT_SOURCE_IMAGE"], "QBITTORRENT", pinned=False):
+        raise ConfigError("QBITTORRENT_SOURCE_IMAGE heredado no es válido")
     return cfg
 
 
@@ -251,7 +261,8 @@ def compose_command(cfg: dict[str, str], target: str, public: bool = False,
            str(ROOT / ".env"), "--env-file", str(ROOT / "images.lock.env")]
     cmd += ["-f", str(ROOT / ("edge/compose.yaml" if target == "edge" else "compose.yaml"))]
     if target == "home" and public:
-        cmd += ["-f", str(ROOT / "compose.public.yaml")]
+        cmd += ["-f", str(ROOT / "compose.public.yaml"),
+                "-f", str(ROOT / "compose.override.yaml")]
     if target == "home" and intel:
         if "RENDER_GID" not in cfg:
             raise ConfigError("Configura RENDER_GID antes de usar --intel")
@@ -289,8 +300,7 @@ def prepare_home(cfg: dict[str, str]) -> None:
         root.mkdir(parents=True, exist_ok=True)
     for service in (*HOME_SERVICES, "jellyfin-cache"):
         ensure_dir(app / service, uid, gid, 0o750)
-    for relative in ("torrents", "torrents/incomplete", "torrents/movies", "torrents/tv",
-                     "media", "media/movies", "media/tv"):
+    for relative in ("media", "media/movies", "media/tv"):
         ensure_dir(data / relative, uid, gid, 0o2770)
     print("Directorios preparados. No se han cambiado archivos existentes recursivamente.")
 
@@ -351,13 +361,49 @@ def check_storage(cfg: dict[str, str]) -> None:
     uid, gid = int(cfg["PUID"]), int(cfg["PGID"])
     app, data = Path(cfg["APPDATA_ROOT"]), Path(cfg["DATA_ROOT"])
     paths = [app / name for name in (*HOME_SERVICES, "jellyfin-cache")]
-    paths += [data / name for name in ("media", "media/movies", "media/tv", "torrents",
-                                      "torrents/movies", "torrents/tv", "torrents/incomplete")]
+    paths += [data / name for name in ("media", "media/movies", "media/tv")]
     for path in paths:
         check_path(path)
         if (not path.is_dir() or path.stat().st_uid != uid or path.stat().st_gid != gid
                 or path.stat().st_mode & 0o700 != 0o700):
             raise ConfigError(f"Directorio ausente o propietario incorrecto: {path}; revisa prepare")
+
+
+def check_external_download_client(cfg: dict[str, str]) -> None:
+    """Validate resources owned by the standalone qBittorrent project, read-only."""
+    uid, gid = int(cfg["PUID"]), int(cfg["PGID"])
+    data = Path(cfg["DATA_ROOT"])
+    for relative in ("torrents/standalone", "torrents/standalone/incomplete",
+                     "torrents/standalone/movies", "torrents/standalone/tv"):
+        path = data / relative
+        check_path(path)
+        if (not path.is_dir() or path.stat().st_uid != uid or path.stat().st_gid != gid
+                or path.stat().st_mode & 0o700 != 0o700):
+            raise ConfigError(
+                f"Falta la ruta compartida o tiene otro propietario: {path}; "
+                "ejecuta prepare en docker-qbittorrent con el mismo DATA_ROOT/PUID/PGID")
+    try:
+        driver = run(["docker", "network", "inspect", "--format", "{{.Driver}}",
+                      cfg["SHARED_NETWORK"]], capture=True)
+    except subprocess.CalledProcessError as exc:
+        raise ConfigError(
+            f"No existe la red externa {cfg['SHARED_NETWORK']}; "
+            "ejecuta './stack network-create' en docker-qbittorrent") from exc
+    if driver != "bridge":
+        raise ConfigError("La red compartida de qBittorrent debe usar el driver bridge")
+
+
+def check_legacy_qbittorrent_absent(cfg: dict[str, str]) -> None:
+    container_ids = run([
+        "docker", "ps", "-aq",
+        "--filter", f"label=com.docker.compose.project={cfg['COMPOSE_PROJECT_NAME']}",
+        "--filter", "label=com.docker.compose.service=qbittorrent",
+    ], capture=True)
+    if container_ids:
+        raise ConfigError(
+            "Todavía existe el qBittorrent antiguo de este proyecto. Detén y retira "
+            "ese contenedor siguiendo la migración antes de arrancar el stack actualizado; "
+            "sus bind mounts no se borrarán")
 
 
 def backup_home(cfg: dict[str, str], output: Path) -> None:
@@ -371,9 +417,14 @@ def backup_home(cfg: dict[str, str], output: Path) -> None:
         raise ConfigError("Guarda el backup fuera del repositorio y de los datos")
     check_storage(cfg)
     cmd, env = compose_command(cfg, "home")
-    running = run(cmd + ["ps", "--status", "running", "--services"], capture=True, env=env).splitlines()
-    if any(service not in HOME_SERVICES for service in running):
+    project_services = run(
+        cmd + ["ps", "--status", "running", "--services"], capture=True, env=env
+    ).splitlines()
+    if any(service not in (*HOME_SERVICES, "qbittorrent") for service in project_services):
         raise ConfigError("El proyecto contiene servicios inesperados")
+    # A legacy qBittorrent orphan is deliberately excluded and left running. The
+    # migration guard blocks the next up until the operator retires it explicitly.
+    running = [service for service in project_services if service in HOME_SERVICES]
     output.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=".media-backup-", dir=output.parent)
     os.close(fd)
@@ -443,6 +494,8 @@ def main(argv: list[str] | None = None) -> int:
                     public_preconditions(cfg, args.accounts_configured, args.target)
                 if args.target == "home":
                     check_storage(cfg)
+                    check_legacy_qbittorrent_absent(cfg)
+                    check_external_download_client(cfg)
                     if args.intel and not Path("/dev/dri/renderD128").exists():
                         raise ConfigError("No existe /dev/dri/renderD128")
                 else:

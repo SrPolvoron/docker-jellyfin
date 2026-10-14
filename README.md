@@ -1,52 +1,95 @@
 # Jellyfin Home Stack · SrPolvoron
 
-Tu biblioteca de películas y series en **Debian con Docker Compose**: reproducción
-con Jellyfin, descubrimiento/solicitudes con Seerr, subtítulos con Bazarr y descargas
-con Radarr, Sonarr, Prowlarr y qBittorrent. Acceso con cuentas propias por HTTPS desde un Traefik en
-OVH, conectado a casa mediante WireGuard. Kubernetes queda para tus otros proyectos.
+A private Docker Compose media stack for Debian: Jellyfin playback, Seerr requests,
+Radarr/Sonarr automation, Prowlarr indexer management and Bazarr subtitles. Downloads
+are provided by the separate `docker-qbittorrent` project through a private external
+Docker network. Public Jellyfin and Seerr traffic terminates at Traefik on OVH and
+reaches the home server through WireGuard.
 
-## Arquitectura fijada
+[Leer en español](docs/README.es.md)
 
-| Ubicación | Servicios | Acceso |
-|---|---|---|
-| Debian de casa | Jellyfin, Seerr | Primero localhost; después también IP WireGuard |
-| Debian de casa | Radarr, Sonarr, Prowlarr, Bazarr, qBittorrent | Localhost y túnel SSH |
-| OVH | Traefik existente o Compose opcional incluido | 80/443 públicos |
-| Ambos hosts | WireGuard del sistema | Un túnel privado con rutas /32 |
+## Architecture
 
-El DNS público apunta a OVH. HTTPS termina allí y el tráfico HTTP hasta casa viaja
-cifrado dentro de WireGuard. El contenido y las configuraciones permanecen en casa.
-Todo el vídeo remoto pasa por OVH: cuenta la subida doméstica y el tráfico del VPS.
+| Location/project | Services | Exposure |
+| --- | --- | --- |
+| This home stack | Jellyfin, Seerr | Loopback; optionally home WireGuard IP and OVH Traefik |
+| This home stack | Radarr, Sonarr, Prowlarr, Bazarr | Loopback; optionally the home WireGuard IP |
+| `docker-qbittorrent` | qBittorrent | Its own loopback/WireGuard policy on port 8081 |
+| OVH | Existing Traefik or the optional included Compose | Public 80/443 only |
 
-Decisiones: dos subdominios; autenticación nativa; catálogo compartido con progreso
-individual y bibliotecas privadas opcionales; configuración inicial manual de las
-aplicaciones; imágenes fijadas por digest; administración por SSH. No se crea un
-reproductor propio, ni se modifica Debian, ni se instala Kubernetes. Supuestos:
-disco local para appdata, conexión saliente UDP a OVH y acceso administrativo SSH.
-Una avería de casa interrumpe la reproducción; OVH no guarda una réplica de vídeos.
+Only Radarr and Sonarr join the external `media-downloads` network. They reach the
+download client at `qbittorrent-standalone:8081`. Both projects mount the same host
+`DATA_ROOT` as `/data`, so the download paths are identical and imports can use
+hardlinks without Remote Path Mappings:
 
-## Requisitos
+```text
+/srv/media                     -> /data
+├── torrents/standalone/movies -> Radarr downloads
+├── torrents/standalone/tv     -> Sonarr downloads
+└── media
+    ├── movies                 -> Jellyfin movie library
+    └── tv                     -> Jellyfin series library
+```
 
-- Debian, arquitectura amd64 o arm64, Python **3.10+**, `tzdata`, `iproute2` y SSH.
-- Docker Engine **28+** y Docker Compose **2.24+**, instalados siguiendo la
-  [guía de Docker para Debian](https://docs.docker.com/engine/install/debian/).
-  Se recomienda Engine 28+ por las correcciones de aislamiento de puertos localhost.
-- Usuario con acceso al daemon Docker. Ese permiso equivale a administración del host.
-- Espacio para contenido y caché. Los límites de RAM incluidos son máximos, no
-  reservas; ajústalos a tu equipo. La transcodificación depende de CPU/GPU y formatos.
-- Dos subdominios propios y OVH con 80/443 disponibles o un Traefik ya funcionando.
-- WireGuard entre los hosts; configuración de ejemplo en `examples/wireguard/`.
+qBittorrent is not defined, started, stopped, updated, published or backed up by this
+repository. Its appdata remains independently owned by `docker-qbittorrent`.
 
-## 1. Arranque privado en casa
+## Persistence contract
 
-Descomprime el proyecto en una carpeta propia, por ejemplo
-`~/github_srpolvoron/jellyfin-home-stack`. Ejecuta desde ella:
+The following host directories contain the state that must be preserved:
+
+```text
+/srv/jellyfin-home/appdata/jellyfin
+/srv/jellyfin-home/appdata/seerr
+/srv/jellyfin-home/appdata/radarr
+/srv/jellyfin-home/appdata/sonarr
+/srv/jellyfin-home/appdata/prowlarr
+/srv/jellyfin-home/appdata/bazarr
+```
+
+Updating this repository does not rename, clear or recreate those directories.
+`prepare` only creates missing paths and refuses to take ownership of an existing
+directory owned by somebody else. Backups include those six appdata directories,
+`.env` and `images.lock.env`; they exclude media, downloads and cache.
+
+## Requirements
+
+- Debian or another Linux host, Python 3.10+, Docker Engine 28+ and Compose 2.24+.
+- One non-root PUID/PGID used by both projects.
+- Local appdata storage and a shared data root, normally `/srv/media`.
+- The standalone qBittorrent project deployed first with its `--media` overlay.
+- SSH; optionally a host WireGuard tunnel and two domains for Jellyfin/Seerr.
+
+## Clean installation
+
+Configure the standalone qBittorrent project first. Its `.env` should contain the
+same PUID, PGID, data root and external network name used here:
+
+```dotenv
+PUID=1000
+PGID=1000
+DATA_ROOT=/srv/media
+SHARED_NETWORK=media-downloads
+WEBUI_PORT=8081
+```
+
+From the qBittorrent repository:
+
+```bash
+./stack check
+sudo ./stack prepare
+./stack lock
+./stack network-create
+./stack up --media
+# Use --media --vpn instead if its Web UI must also listen on WireGuard.
+```
+
+Change its temporary password and run `./stack categories` there. Then initialize
+this repository:
 
 ```bash
 chmod +x stack
 ./stack init
-id -u
-id -g
 nano .env
 ./stack check
 sudo ./stack prepare
@@ -56,58 +99,95 @@ sudo ./stack prepare
 ./stack status
 ```
 
-Pon tus UID/GID reales en `.env`; no uses 0. Ajusta rutas, IP del túnel, interfaz y
-dominios. Los valores son literales: sin comillas, espacios o variables de shell.
-`prepare` crea los directorios y asigna propietarios solo a los nuevos: **no hace
-chown recursivo ni modifica datos ya existentes**. Si encuentra otro propietario,
-se detiene para que revises esa ruta. Si el contenido está en otro disco, móntalo
-antes y comprueba `findmnt -T /srv/media`; appdata debe estar en almacenamiento local.
+Set the same values in this project's `.env`:
 
-`lock` descarga los canales estables indicados en `.env` y guarda sus digests en
-`images.lock.env`. `up` usa exclusivamente esos digests. Ejecutar `lock` otra vez
-conserva los existentes; `--refresh` es una actualización deliberada.
+```dotenv
+PUID=1000
+PGID=1000
+DATA_ROOT=/srv/media
+SHARED_NETWORK=media-downloads
+```
 
-Desde tu ordenador abre un túnel SSH al servidor de casa (usa tu alias SSH):
+Before `up`, the tool verifies that the external network is a Docker bridge, the
+standalone movie/TV download directories exist with the expected ownership, and no
+old qBittorrent container remains attached to this Compose project.
+
+## Safe migration from the former embedded qBittorrent
+
+This is an intentional service split. Jellyfin, Seerr, Radarr, Sonarr, Prowlarr and
+Bazarr keep their current appdata. Media and torrent payloads are not required for
+the migration, but do not delete them until the new flow has been tested.
+
+Perform the first commands with the **currently deployed old repository**, before
+copying the updated files:
+
+```bash
+cd /path/to/current/jellyfin-home-stack
+sudo mkdir -p /srv/backups/jellyfin
+sudo ./stack backup --output /srv/backups/jellyfin/before-qbittorrent-split.tar.gz
+./stack down
+sudo tar -tzf /srv/backups/jellyfin/before-qbittorrent-split.tar.gz
+```
+
+The old `down` removes containers and Compose networks only; bind-mounted appdata,
+downloads and media remain on disk. The pre-migration archive also contains the old
+qBittorrent configuration because it was created by the old version.
+
+Next:
+
+1. Deploy `docker-qbittorrent` with `DATA_ROOT=/srv/media`, its separate
+   `CONFIG_ROOT=/srv/qbittorrent/config`, and `SHARED_NETWORK=media-downloads`.
+2. Run its `prepare`, `lock`, `network-create`, `up --media` and `categories` commands.
+3. Replace only this repository's tracked project files. Preserve its existing `.env`
+   and `images.lock.env`.
+4. Add `SHARED_NETWORK=media-downloads` to the existing `.env`. Legacy
+   `QBITTORRENT_SOURCE_IMAGE` and `QBITTORRENT_IMAGE` lines may remain temporarily;
+   they are accepted for compatibility but are not used.
+5. Run the normal `check`, `prepare`, `lock`, `config` and `up` commands above.
+6. In both Radarr and Sonarr, edit the existing qBittorrent download client:
+
+   | Field | Value |
+   | --- | --- |
+   | Host | `qbittorrent-standalone` |
+   | Port | `8081` |
+   | SSL | Disabled |
+   | Category | `movies` in Radarr; `tv` in Sonarr |
+   | Credentials | The new standalone qBittorrent credentials |
+
+   Keep Remote Path Mappings empty and press **Test**.
+
+Do not copy the old qBittorrent `/config` into the new project while either instance
+is running. Keep the old directory and backup until a test request downloads, imports,
+appears in Jellyfin and obtains subtitles successfully.
+
+## Private access
+
+Open all local panels through one SSH connection:
 
 ```bash
 ssh -N -o ExitOnForwardFailure=yes \
   -L 8096:127.0.0.1:8096 -L 5055:127.0.0.1:5055 \
   -L 7878:127.0.0.1:7878 -L 8989:127.0.0.1:8989 \
   -L 9696:127.0.0.1:9696 -L 6767:127.0.0.1:6767 \
-  -L 8080:127.0.0.1:8080 casa
+  -L 8081:127.0.0.1:8081 casa
 ```
 
-| Aplicación | Dirección en tu ordenador |
-|---|---|
-| Jellyfin | http://localhost:8096 |
-| Seerr | http://localhost:5055 |
-| Radarr | http://localhost:7878 |
-| Sonarr | http://localhost:8989 |
-| Prowlarr | http://localhost:9696 |
-| Bazarr | http://localhost:6767 |
-| qBittorrent | http://localhost:8080 |
+| Application | Laptop URL |
+| --- | --- |
+| Jellyfin | `http://127.0.0.1:8096` |
+| Seerr | `http://127.0.0.1:5055` |
+| Radarr | `http://127.0.0.1:7878` |
+| Sonarr | `http://127.0.0.1:8989` |
+| Prowlarr | `http://127.0.0.1:9696` |
+| Bazarr | `http://127.0.0.1:6767` |
+| qBittorrent (separate project) | `http://127.0.0.1:8081` |
 
-## 2. Cuentas, bibliotecas y descargas
+Complete account and application setup with [docs/CONFIGURACION.md](docs/CONFIGURACION.md).
 
-Sigue [docs/CONFIGURACION.md](docs/CONFIGURACION.md): incluye los campos exactos
-para conectar las siete aplicaciones. Primero termina los asistentes, configura
-contraseñas y prueba las conexiones. Las API keys se copian entre las interfaces;
-no se añaden a Git ni a este proyecto.
+## WireGuard and public access
 
-Jellyfin administra usuarios y permisos. Seerr puede reutilizar sus credenciales,
-con sesión propia. Una solicitud descarga al catálogo compartido: **no genera una
-biblioteca privada del solicitante**. Para privacidad, crea carpetas/bibliotecas
-separadas y asigna el acceso explícitamente en Jellyfin.
-
-## 3. WireGuard y publicación
-
-Sigue [docs/ACCESO_OVH.md](docs/ACCESO_OVH.md) para levantar el túnel y configurar
-el Traefik existente o el opcional incluido. No abras los puertos de aplicaciones
-en el router doméstico. El túnel conecta casa con OVH; las descargas usan la conexión
-normal de casa, sin proveedor VPN de salida. qBittorrent funciona como nodo pasivo;
-no se publican puertos P2P por defecto.
-
-Una vez creadas las cuentas y verificado el túnel, en casa:
+Follow [docs/ACCESO_OVH.md](docs/ACCESO_OVH.md). Once accounts and the tunnel have
+been verified:
 
 ```bash
 ./stack config --public
@@ -115,47 +195,27 @@ Una vez creadas las cuentas y verificado el túnel, en casa:
 ./stack edge-config --accounts-configured
 ```
 
-La opción `--accounts-configured` es tu declaración de que has terminado el
-bootstrap; **no inspecciona las contraseñas ni sustituye la prueba de login**.
-El arranque comprueba que `HOME_WG_IP` está en `WG_INTERFACE` y rechaza dominios
-de ejemplo. El overlay conserva localhost y añade solo Jellyfin/Seerr en la IP
-privada del túnel. Copia `edge/dynamic/media.yml` al proveedor file de OVH.
+The public overlay exposes Jellyfin and Seerr on the home WireGuard IP for the OVH
+proxy. The admin override adds Radarr, Sonarr, Prowlarr and Bazarr to that same private
+IP. It does not publish qBittorrent; that project controls its own optional `--vpn`
+listener. None of the admin panels receives a Traefik router or public subdomain.
 
-Desde entonces:
+Keep `--public` on later `up` commands to retain these WireGuard listeners.
 
-- `https://cine.tudominio.es`: ver tu contenido con tu cuenta de Jellyfin.
-- `https://peticiones.tudominio.es`: buscar y solicitar, con las cuentas autorizadas.
-- Administración de descargas: el mismo túnel SSH, sin nuevos subdominios públicos.
+## Backups, updates and recovery
 
-Mantén `--public` en las siguientes ejecuciones de `up`; omitirlo retira el acceso
-por WireGuard y conserva el privado. Para administrar desde casa también puedes
-usar los subdominios de OVH; el acceso LAN directo queda cerrado por defecto.
-
-## Operación, copias y actualización
+Create a consistent configuration backup before changes:
 
 ```bash
-./stack status
-./stack logs --service jellyfin
-./stack down
-# Recuperar tras down conservando datos y acceso público:
-./stack up --public --accounts-configured
+sudo ./stack backup --output /srv/backups/jellyfin/media-2026-10-14.tar.gz
 ```
 
-Una copia consistente de **configuraciones, cuentas y metadatos** detiene brevemente
-los servicios que estaban activos y vuelve a arrancarlos, sin recrearlos:
+The command stops only currently running services from this repository, creates a
+0600 archive, and restarts only those services. Back up qBittorrent from its own
+repository. Store both archives encrypted and off-host because they contain API keys,
+sessions and application credentials.
 
-```bash
-sudo ./stack backup --output /srv/backups/media-2026-10-13.tar.gz
-```
-
-La copia tiene permisos 0600 y contiene API keys/configuraciones: guárdala cifrada
-fuera del servidor. **No incluye vídeos, descargas, caché ni certificados de OVH**;
-copia estos por separado si quieres recuperarlos. No se sobrescribe un backup existente.
-Si el proceso recibe SIGKILL o se apaga el host, revisa `./stack status` y reinicia
-los servicios. Guarda también tus configuraciones WireGuard de forma privada.
-
-Para actualizar: haz backup, revisa cambios de los proyectos originales y, si quieres
-versiones concretas, cambia `*_SOURCE_IMAGE` a sus tags antes de resolver:
+Update deliberately:
 
 ```bash
 ./stack lock --refresh
@@ -163,62 +223,25 @@ versiones concretas, cambia `*_SOURCE_IMAGE` a sus tags antes de resolver:
 ./stack up --public --accounts-configured
 ```
 
-El lock anterior queda en `images.lock.env.previous`. Para rollback copia ese lock
-y recrea los servicios **solo si sus bases de datos siguen siendo compatibles**.
-Si hubo migración, restaura también appdata del backup previo. Extrae la copia a un
-directorio temporal privado, comprueba su contenido, detén el stack y restaura las
-carpetas de `appdata/`, `.env` y el lock en sus rutas originales; conserva UID/GID.
-No extraigas archivos no fiables directamente sobre el sistema. No hay actualizaciones
-automáticas ni un comando que borre contenido.
+The previous image lock is retained. Image rollback alone cannot reverse application
+database migrations; restore the matching appdata backup when required. Do not use
+`docker compose down -v`, `--remove-orphans`, or recursive deletion as part of this
+migration.
 
-### Incorporar Bazarr a una instalación existente
-
-Después de actualizar el repositorio, añade a tu `.env` si aún no existe:
-
-```text
-BAZARR_SOURCE_IMAGE=lscr.io/linuxserver/bazarr:latest
-```
-
-Conservando el acceso público actual, crea el directorio, resuelve únicamente la
-imagen nueva y aplica el Compose:
-
-```bash
-sudo ./stack prepare
-./stack lock
-./stack config --public
-./stack up --public --accounts-configured
-./stack status
-```
-
-Bazarr queda en `127.0.0.1:6767`; no se publica mediante Traefik ni WireGuard.
-
-## GPU opcional y Kubernetes
-
-La base funciona sin dispositivos GPU. Para un render node Intel/AMD compatible,
-comprueba `ls -l /dev/dri/renderD128` y `stat -c %g /dev/dri/renderD128`; añade el GID
-real como `RENDER_GID` en `.env`. Usa `./stack up --intel` (añade también `--public
---accounts-configured` si publicas). Activa VA-API/QSV según tu GPU en Jellyfin y
-prueba una reproducción que transcodifique. NVIDIA requiere otra configuración
-según hardware; no se habilita a ciegas.
-
-Puedes añadir K3s en una VM KVM/libvirt sobre este mismo Debian cuando quieras.
-La instalación y las redes de ese laboratorio son independientes del stack.
-
-## Comprobación y estado de entrega
+## Validation
 
 ```bash
 python3 -m unittest discover -s tests -v
-# Opcional para la comprobación estática de YAML: sudo apt install python3-yaml
-python3 tests/check_compose.py
+python3 tests/check_compose.py       # Requires PyYAML
+python3 -m py_compile scripts/stack.py tests/*.py
 ./stack config
 ./stack config --public
 ```
 
-[docs/VALIDACION.md](docs/VALIDACION.md) distingue la validación local ejecutada de
-las pruebas obligatorias de arranque, login, HTTPS y descargas en tus servidores.
-Deuda aceptada: integración inicial manual, elección del hardware pendiente y sin
-HA. Si añades más usuarios, controla espacio, permisos de solicitudes y consumo de
-transcodificación; si crece el servicio, revisa límites y estrategia de recuperación.
+Local tests validate configuration parsing, immutable image locks, persistence and
+backup boundaries, Compose networks, private bindings and the external download-client
+contract. Production confidence still requires a real Docker start on the Debian host,
+Radarr/Sonarr download-client tests and one legal end-to-end download/import check.
 
-Este repositorio contiene configuración y herramientas MIT. Cada aplicación mantiene
-su licencia propia. No contiene contenido multimedia ni credenciales de fuentes.
+See [docs/VALIDACION.md](docs/VALIDACION.md) for the acceptance checklist. This
+repository is MIT-licensed; each packaged application retains its own license.

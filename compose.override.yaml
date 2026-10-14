@@ -1,0 +1,20 @@
+# Acceso administrativo privado mediante la IP de WireGuard del servidor de casa.
+# Se combina con compose.yaml y conserva también los listeners de 127.0.0.1.
+# qBittorrent pertenece al proyecto docker-qbittorrent y no se publica aquí.
+services:
+  radarr:
+    ports:
+      - "${HOME_WG_IP:?Configura HOME_WG_IP}:7878:7878"
+
+  sonarr:
+    ports:
+      - "${HOME_WG_IP:?Configura HOME_WG_IP}:8989:8989"
+
+  prowlarr:
+    ports:
+      - "${HOME_WG_IP:?Configura HOME_WG_IP}:9696:9696"
+
+  bazarr:
+    ports:
+      - "${HOME_WG_IP:?Configura HOME_WG_IP}:6767:6767"
+

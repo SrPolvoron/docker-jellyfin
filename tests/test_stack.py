@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -54,7 +55,19 @@ class StackTests(unittest.TestCase):
         return values
 
     def test_example_works_for_private_bootstrap(self):
-        self.assertEqual(stack.load_config()["HOME_WG_IP"], "10.77.0.2")
+        cfg = stack.load_config()
+        self.assertEqual(cfg["HOME_WG_IP"], "10.77.0.2")
+        self.assertEqual(cfg["SHARED_NETWORK"], "media-downloads")
+
+    def test_legacy_qbittorrent_keys_are_accepted_but_not_required(self):
+        self.change("QBITTORRENT_SOURCE_IMAGE", "lscr.io/linuxserver/qbittorrent:latest")
+        self.assertIn("QBITTORRENT_SOURCE_IMAGE", stack.load_config())
+        locks = self.locks()
+        with (self.root / "images.lock.env").open("a") as stream:
+            stream.write("QBITTORRENT_IMAGE=lscr.io/linuxserver/qbittorrent@sha256:" + "b" * 64 + "\n")
+        loaded = stack.load_lock("home")
+        self.assertIn("QBITTORRENT_IMAGE", loaded)
+        self.assertNotIn("qbittorrent", stack.HOME_SERVICES)
 
     def test_shell_substitution_is_never_executed(self):
         self.change("TZ", "$(touch /tmp/unwanted)")
@@ -194,6 +207,13 @@ class StackTests(unittest.TestCase):
         self.assertEqual(home[home.index("-p") + 1], "srpolvoron-media")
         self.assertEqual(edge[edge.index("-p") + 1], "srpolvoron-media-edge")
 
+    def test_public_home_includes_media_and_private_admin_overlays(self):
+        self.locks()
+        command, _ = stack.compose_command(stack.load_config(), "home", public=True)
+        compose_files = [command[index + 1] for index, value in enumerate(command) if value == "-f"]
+        self.assertEqual([Path(path).name for path in compose_files],
+                         ["compose.yaml", "compose.public.yaml", "compose.override.yaml"])
+
     def test_shell_environment_cannot_override_binding_or_digest(self):
         locks = self.locks()
         with patch.dict(os.environ, {"HOME_WG_IP": "0.0.0.0", "JELLYFIN_IMAGE": "evil:latest",
@@ -221,6 +241,38 @@ class StackTests(unittest.TestCase):
             stack.ensure_dir(path, other_uid, before.st_gid, 0o750)
         chown.assert_not_called()
         self.assertEqual(path.stat().st_uid, before.st_uid)
+
+    def test_prepare_does_not_manage_qbittorrent_or_download_directories(self):
+        cfg = stack.load_config()
+        with patch.object(stack, "ensure_dir") as ensure:
+            stack.prepare_home(cfg)
+        targets = {call.args[0] for call in ensure.call_args_list}
+        self.assertNotIn(Path(cfg["APPDATA_ROOT"]) / "qbittorrent", targets)
+        self.assertFalse(any("torrents" in path.parts for path in targets))
+        self.assertIn(Path(cfg["APPDATA_ROOT"]) / "radarr", targets)
+        self.assertIn(Path(cfg["DATA_ROOT"]) / "media/movies", targets)
+
+    def test_external_download_client_requires_standalone_paths(self):
+        with patch.object(stack, "run") as run, self.assertRaises(stack.ConfigError):
+            stack.check_external_download_client(stack.load_config())
+        run.assert_not_called()
+
+    def test_external_download_client_accepts_bridge_and_matching_ownership(self):
+        cfg = stack.load_config()
+        fake_stat = SimpleNamespace(st_uid=1000, st_gid=1000, st_mode=0o40770)
+        with patch.object(Path, "is_dir", return_value=True), \
+                patch.object(Path, "stat", return_value=fake_stat), \
+                patch.object(stack, "check_path"), \
+                patch.object(stack, "run", return_value="bridge") as run:
+            stack.check_external_download_client(cfg)
+        self.assertEqual(run.call_args.args[0][-1], "media-downloads")
+
+    def test_legacy_qbittorrent_container_blocks_upgrade_start(self):
+        with patch.object(stack, "run", return_value="container-id"):
+            with self.assertRaises(stack.ConfigError):
+                stack.check_legacy_qbittorrent_absent(stack.load_config())
+        with patch.object(stack, "run", return_value=""):
+            stack.check_legacy_qbittorrent_absent(stack.load_config())
 
     def test_init_never_overwrites_existing_env(self):
         before = (self.root / ".env").read_bytes()
@@ -253,17 +305,19 @@ class StackTests(unittest.TestCase):
 
         def runner(argv, **kwargs):
             calls.append(argv)
-            return "jellyfin\nseerr" if "ps" in argv else ""
+            return "jellyfin\nseerr\nqbittorrent" if "ps" in argv else ""
 
         output = self.base / "backups/config.tar.gz"
         with patch.object(stack, "check_storage"), patch.object(stack, "run", side_effect=runner):
             stack.backup_home(cfg, output)
         self.assertEqual(calls[-1][-3:], ["start", "jellyfin", "seerr"])
+        lifecycle = [argv for argv in calls if "stop" in argv or "start" in argv]
+        self.assertTrue(all("qbittorrent" not in argv for argv in lifecycle))
         self.assertEqual(output.stat().st_mode & 0o777, 0o600)
         with tarfile.open(output) as archive:
             names = archive.getnames()
-            self.assertIn("appdata/qbittorrent/config.json", names)
             self.assertIn("appdata/bazarr/config.json", names)
+            self.assertFalse(any("appdata/qbittorrent" in name for name in names))
             self.assertIn(".env", names)
             self.assertIn("images.lock.env", names)
             self.assertFalse(any("cache" in name or "torrents" in name for name in names))

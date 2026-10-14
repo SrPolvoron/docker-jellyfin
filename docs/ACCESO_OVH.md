@@ -144,7 +144,10 @@ Known Proxies de Jellyfin. Antes de actualizar Traefik, guarda ACME y el lock de
   certificado válido, redirección HTTP→HTTPS y que la biblioteca exige login.
 - Entra con una cuenta normal y verifica que no puede administrar otras cuentas.
 - Reproduce un vídeo y prueba adelantarlo; comprueba el cliente de móvil/TV si lo usas.
-- Comprueba en OVH que **no** alcanzas casa en 7878, 8989, 9696, 6767 ni 8080 por WireGuard.
+- Comprueba que 7878, 8989, 9696 y 6767 solo responden mediante la IP WireGuard y
+  nunca mediante la IP pública, la interfaz LAN o un subdominio Traefik.
+- La interfaz qBittorrent en 8081 pertenece a su proyecto independiente; comprueba
+  allí su acceso SSH/WireGuard y que tampoco esté publicada en Internet.
 - Verifica que el daemon Docker no está publicado y que no hay mappings wildcard
   añadidos en otro Compose o servicio del host.
 - Si WireGuard cae, se interrumpe el acceso remoto. Las descargas y el acceso por

@@ -25,31 +25,33 @@ UID/GID y permisos, añade una biblioteca específica y da acceso solo a su prop
 No incluyas esa carpeta en otra biblioteca compartida. Los administradores del servidor
 siguen teniendo acceso. La cuenta no crea carpetas ni catálogos automáticamente.
 
-## qBittorrent
+## qBittorrent independiente
 
-```bash
-./stack logs --service qbittorrent
+qBittorrent pertenece al repositorio separado `docker-qbittorrent`. En su `.env`
+debe compartir estos valores con este despliegue:
+
+```dotenv
+PUID=1000                     # El mismo valor real en ambos proyectos
+PGID=1000                     # El mismo valor real en ambos proyectos
+DATA_ROOT=/srv/media          # El mismo DATA_ROOT de este proyecto
+SHARED_NETWORK=media-downloads
+WEBUI_PORT=8081
 ```
 
-Busca **en tu servidor** la contraseña temporal del usuario `admin`; no compartas
-ese log. En http://localhost:8080 configura una contraseña permanente y conserva
-protección CSRF, validación de Host y autenticación. Desactiva bypass de autenticación
-por localhost/subredes. Si limitas «Server domains», permite los nombres internos
-`qbittorrent` y `localhost`, además de `127.0.0.1`.
+Desde ese repositorio ejecuta `./stack prepare`, `./stack network-create` y
+`./stack up --media` (añade `--vpn` si quieres su interfaz en WireGuard). Después
+de cambiar la contraseña temporal, ejecuta allí `./stack categories`. Esto crea:
 
-En opciones de descargas:
-
-| Campo | Valor |
+| Categoría | Ruta común dentro de los contenedores |
 |---|---|
-| Carpeta por defecto | `/data/torrents` |
-| Incompletas | `/data/torrents/incomplete` |
-| Categoría `movies` | `/data/torrents/movies` |
-| Categoría `tv` | `/data/torrents/tv` |
+| `movies` | `/data/torrents/standalone/movies` |
+| `tv` | `/data/torrents/standalone/tv` |
+| Incompletas | `/data/torrents/standalone/incomplete` |
 
-Activa la gestión automática de torrents para aplicar las rutas de categoría.
-Desactiva UPnP/NAT-PMP. Los puertos P2P están cerrados al exterior por diseño;
-las conexiones salientes permiten funcionar como nodo pasivo. WireGuard no redirige
-su salida a OVH ni es una VPN comercial de descargas.
+Mantén protección CSRF, validación de Host y autenticación. Si limitas los dominios
+admitidos de la interfaz, permite `qbittorrent-standalone`, `localhost` y
+`127.0.0.1`; no desactives globalmente esas protecciones. La administración y los
+límites de siembra se gestionan exclusivamente en el proyecto qBittorrent.
 
 ## Radarr y Sonarr
 
@@ -61,15 +63,16 @@ Las API keys se encuentran en Settings → General. Deja URL Base vacío.
 |---|---|---|
 | Carpeta raíz | `/data/media/movies` | `/data/media/tv` |
 | Download Client | qBittorrent | qBittorrent |
-| Host del cliente | `qbittorrent` | `qbittorrent` |
-| Puerto del cliente | `8080` | `8080` |
+| Host del cliente | `qbittorrent-standalone` | `qbittorrent-standalone` |
+| Puerto del cliente | `8081` | `8081` |
 | SSL interno | Desactivado | Desactivado |
 | Usuario/contraseña | Los que configuraste en qBittorrent | Los mismos |
 | Categoría | `movies` | `tv` |
 
 Prueba el cliente con **Test**, activa Completed Download Handling y selecciona un
 perfil de calidad/idioma que se ajuste al espacio disponible y a tus dispositivos.
-No configures Remote Path Mappings: los tres contenedores comparten las mismas rutas.
+No configures Remote Path Mappings: los tres contenedores ven el mismo `DATA_ROOT`
+del host como `/data`, aunque pertenezcan a proyectos Compose diferentes.
 
 Activa «Use Hardlinks instead of Copy» si descargas y biblioteca están en el mismo
 filesystem; `/data` es un único bind en Radarr/Sonarr. Dos discos, submontajes o
@@ -153,7 +156,7 @@ junto a los vídeos para que Jellyfin los detecte durante su actualización de b
    usuarios concretos. Configura límites de solicitudes para controlar el disco.
 
 Flujo de uso: usuario solicita → aprobación → Radarr/Sonarr consultan fuentes
-sincronizadas por Prowlarr → qBittorrent descarga → importación → Jellyfin detecta
+sincronizadas por Prowlarr → qBittorrent independiente descarga → importación → Jellyfin detecta
 el archivo → Bazarr busca subtítulos → Seerr sincroniza disponibilidad. Son servicios separados, con dos
 interfaces públicas y sesiones independientes. El contenido solicitado va a las
 bibliotecas configuradas, compartidas por defecto.

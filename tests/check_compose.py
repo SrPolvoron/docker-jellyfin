@@ -43,7 +43,7 @@ def check():
         assert service["security_opt"] == ["no-new-privileges:true"]
         assert "@sha256:" in service["image"]
         assert all(port.startswith("127.0.0.1:") for port in service["ports"])
-        assert set(service["networks"]) <= {"playback", "automation"}
+        assert set(service["networks"]) <= {"playback", "automation", "downloads"}
         for volume in service["volumes"]:
             assert volume["type"] == "bind"
             assert volume["bind"]["create_host_path"] is False
@@ -57,16 +57,18 @@ def check():
     for name in ("radarr", "sonarr"):
         assert any(v["target"] == "/data" and v["source"] == cfg["DATA_ROOT"]
                    for v in base["services"][name]["volumes"])
+        assert set(base["services"][name]["networks"]) == {"automation", "downloads"}
+    assert base["networks"]["downloads"] == {
+        "external": True,
+        "name": cfg["SHARED_NETWORK"],
+    }
     bazarr = base["services"]["bazarr"]
     assert bazarr["ports"] == ["127.0.0.1:6767:6767"]
     assert any(v["target"] == "/data/media" and v["source"] == cfg["DATA_ROOT"] + "/media"
                for v in bazarr["volumes"])
     assert not any(v["target"] == "/data/torrents" for v in bazarr["volumes"])
-    qbit = base["services"]["qbittorrent"]
-    assert qbit["ports"] == ["127.0.0.1:8080:8080"]
-    assert any(v["target"] == "/data/torrents" for v in qbit["volumes"])
-    assert not any(v["target"] in ("/data", "/media") for v in qbit["volumes"])
-    for name in ("radarr", "sonarr", "prowlarr", "bazarr", "qbittorrent"):
+    assert "qbittorrent" not in base["services"]
+    for name in ("radarr", "sonarr", "prowlarr", "bazarr"):
         assert any(v.startswith("/run:uid=1000,gid=1000,") and ",exec," in v
                    for v in base["services"][name]["tmpfs"])
 
@@ -76,6 +78,21 @@ def check():
         assert set(service) == {"ports"}
         assert all(p.startswith("10.77.0.2:") for p in service["ports"])
         # Compose uses (IP,target,published,protocol) as port uniqueness key.
+        combined = base["services"][name]["ports"] + service["ports"]
+        assert len(combined) == len(set(combined)) == 2
+
+    admin = load("compose.override.yaml")
+    admin_ports = {
+        "radarr": 7878,
+        "sonarr": 8989,
+        "prowlarr": 9696,
+        "bazarr": 6767,
+    }
+    assert set(admin["services"]) == set(admin_ports)
+    for name, port in admin_ports.items():
+        service = admin["services"][name]
+        assert set(service) == {"ports"}
+        assert service["ports"] == [f"10.77.0.2:{port}:{port}"]
         combined = base["services"][name]["ports"] + service["ports"]
         assert len(combined) == len(set(combined)) == 2
 
